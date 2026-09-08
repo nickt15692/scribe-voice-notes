@@ -1,0 +1,83 @@
+# App settings. Model choices live next door in presets.toml.
+
+[output]
+# Finished rants are written here as markdown, two files per session:
+#   2026-09-03-1442-rant.md      cleaned, the one you read
+#   2026-09-03-1442-rant.raw.md  verbatim, kept so nothing is ever lost
+folder = "~/Documents/scribe"
+
+# Keep the original recording for playback. The decoded 16 kHz PCM working copy
+# (~115 MB/hour) is always deleted once a job finishes; the file you uploaded or
+# recorded stays, and every timestamp in the transcript is valid against it,
+# because decoding never shifts time.
+keep_audio = true
+
+
+[chunking]
+# A gap at least this long ends a chunk and starts a new paragraph. This is the
+# "pause to think" threshold: below it you're breathing, above it you've stopped
+# to work something out, and that's a real boundary in the text.
+paragraph_gap = 2.0
+
+# Anything quieter than this for longer than min_silence counts as a pause.
+# Raise toward 0 to treat quieter passages as silence; lower it (-45) if you
+# record in a noisy room and the floor is high.
+noise_db = -35.0
+
+# Shorter than the stock 0.45 on purpose: ranting is mostly continuous speech,
+# and catching breath-length gaps gives the planner more places to cut cleanly
+# instead of falling back to a mid-sentence cut on the clock.
+min_silence = 0.30
+
+# Level the audio during ingest so the threshold below means the same thing for
+# every input. Capture paths differ enormously: the browser applies automatic
+# gain control, AVAudioRecorder does not, so the same voice arrives 15-30 dB
+# quieter from the menu bar app — quiet enough that a whole recording can be
+# classified as silence and thrown away. A single constant gain is applied, so
+# pauses stay proportionally quiet and paragraph detection is unaffected.
+normalize = true
+
+# Sits below Whisper's 30 s window. The model pads short input, so headroom is
+# free, whereas overshooting means the tail is silently truncated.
+max_chunk = 25.0
+
+# Keep a little audio either side of each speech region so word onsets and
+# trailing consonants don't get clipped at the seam.
+pad = 0.25
+
+
+[transcription]
+# Whisper matches the style of its prompt. Seeded with a disfluent sample, it
+# transcribes far closer to verbatim instead of tidying as it goes — which is
+# what makes a genuinely raw version possible at all.
+verbatim_prompt = "Um, so — I mean, the thing is, uh, I was thinking, you know, that, that maybe we could, like, just try it and see."
+
+# Words Whisper reliably mangles: project names, tools, people, jargon. Listing
+# them here biases the decoder toward the right spelling. Worth maintaining —
+# for ranting about your own work this is the single biggest accuracy win.
+vocabulary = [
+  # "Anthropic", "Claude", "parakeet", "Obsidian",
+]
+
+# Unload the model after this many idle minutes, freeing ~1.6 GB (large-v3-turbo).
+# Matters because the menu bar app keeps the server running for days; without it
+# the first transcription of the day pins the weights until you quit. The next
+# job reloads in a few seconds. Set to 0 to keep the model resident forever.
+unload_after_minutes = 10
+
+
+[cleaning]
+# Non-lexical sounds. No meaning to lose, so these always go.
+always = ["um", "uh", "erm", "uhh", "umm", "hmm", "mhm", "mm", "ah", "eh", "er"]
+
+# Discourse markers. Usually filler, occasionally load-bearing, so they're
+# stripped only when they sit between commas or open a sentence.
+phrases = ["you know", "i mean", "sort of", "kind of"]
+
+# Words that carry real meaning often enough to be worth keeping. Move any of
+# these into `phrases` if your own speech leans on them.
+# aggressive = ["like", "basically", "actually", "literally", "right"]
+aggressive = []
+
+# Collapse immediate word repetition: "the the thing" -> "the thing".
+fix_stutters = true

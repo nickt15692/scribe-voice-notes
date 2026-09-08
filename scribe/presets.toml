@@ -1,0 +1,39 @@
+# Named model presets.
+#
+# Each preset needs a `backend` and whatever that backend's constructor takes.
+# `label` is what shows in the UI; `language` is optional (omit it to let
+# Whisper auto-detect, which costs one extra decode pass on the first chunk).
+#
+# Backends: whisper-cpp | mlx-whisper | parakeet-mlx
+
+[presets.fast]
+label = "Parakeet 0.6b"
+backend = "parakeet-mlx"
+model = "mlx-community/parakeet-tdt-0.6b-v2"
+
+[presets.accurate]
+label = "Whisper large-v3-turbo"
+backend = "mlx-whisper"
+model = "mlx-community/whisper-large-v3-turbo"
+language = "en"
+
+[presets.multilingual]
+label = "Whisper large-v3"
+backend = "mlx-whisper"
+model = "mlx-community/whisper-large-v3-mlx"
+# no `language` — auto-detect
+
+[presets.draft]
+label = "Whisper small"
+backend = "mlx-whisper"
+model = "mlx-community/whisper-small-mlx"
+language = "en"
+
+# Local GGML file, no Python dependencies. Point `model` at anything you've
+# downloaded from Hugging Face, including community fine-tunes.
+# [presets.ggml]
+# label = "large-v3-turbo (ggml)"
+# backend = "whisper-cpp"
+# model = "~/models/ggml-large-v3-turbo.bin"
+# threads = 8
+# language = "en"

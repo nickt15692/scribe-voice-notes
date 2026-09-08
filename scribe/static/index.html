@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scribe</title>
+<style>
+  /* Archivo, served from scribe/static/fonts rather than fonts.googleapis.com.
+     The webfont link was the only thing in this app that talked to a third
+     party: it leaked your IP and the fact that you opened the page to Google on
+     every load. It never carried audio or transcripts — recording happens after
+     the font has loaded, and MediaRecorder posts only to localhost — but with
+     it gone, "nothing leaves this machine" is literally true and the UI works
+     with no network at all.
+
+     One variable file per subset covers all four weights, which is why
+     `font-weight: 400 700` appears instead of four separate declarations.
+     The unicode-range values are Google's own, so the browser still downloads
+     only the subsets a page actually needs. */
+  @font-face {
+    font-family: 'Archivo';
+    font-style: normal;
+    font-weight: 400 700;
+    font-stretch: 100%;
+    font-display: swap;
+    src: url('/fonts/archivo-latin.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Archivo';
+    font-style: normal;
+    font-weight: 400 700;
+    font-stretch: 100%;
+    font-display: swap;
+    src: url('/fonts/archivo-latin-ext.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
+  @font-face {
+    font-family: 'Archivo';
+    font-style: normal;
+    font-weight: 400 700;
+    font-stretch: 100%;
+    font-display: swap;
+    src: url('/fonts/archivo-vietnamese.woff2') format('woff2');
+    unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+  }
+
+  :root {
+    --ground: #E8E9E6;
+    --panel:  #F5F5F3;
+    --ink:    #1A1C1A;
+    --muted:  #6E7370;
+    --rule:   #C9CBC6;
+    --signal: #C8341F;
+    --radius: 3px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 40px 24px 96px;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  main { max-width: 760px; margin: 0 auto; }
+
+  .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+  /* --- masthead --- */
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 16px; margin-bottom: 28px;
+  }
+  h1 {
+    margin: 0; font-size: 19px; font-weight: 700;
+    letter-spacing: -0.015em;
+  }
+  header p { margin: 0 auto 0 0; color: var(--muted); font-size: 13px; }
+  header button {
+    font: inherit; font-size: 12px; color: var(--muted); flex: none;
+    background: none; border: 1px solid var(--rule); border-radius: var(--radius);
+    padding: 4px 10px; cursor: pointer;
+  }
+  header button:hover { color: var(--signal); border-color: var(--signal); }
+
+  .stopped { padding: 60px 2px; color: var(--muted); font-size: 14px; }
+  .stopped code {
+    font-size: 13px; background: var(--panel);
+    border: 1px solid var(--rule); border-radius: var(--radius); padding: 2px 6px;
+  }
+
+  /* --- transport --- */
+  .transport {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+  }
+
+  .transport-row {
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+
+  button.record {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: none; border: 1px solid var(--rule); border-radius: var(--radius);
+    padding: 9px 16px 9px 13px;
+    font: inherit; font-weight: 600; font-size: 14px; color: var(--ink);
+    cursor: pointer;
+  }
+  button.record:hover { border-color: var(--muted); }
+  button.record:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  button.record[disabled] { opacity: .45; cursor: not-allowed; }
+
+  .lamp {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--rule); flex: none;
+  }
+  body.live .lamp { background: var(--signal); animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: .3; } }
+  @media (prefers-reduced-motion: reduce) { .lamp { animation: none !important; } }
+
+  .elapsed {
+    font-size: 30px; font-weight: 500; letter-spacing: -0.02em;
+    color: var(--rule); margin-left: auto;
+  }
+  body.live .elapsed { color: var(--signal); }
+
+  select {
+    font: inherit; font-size: 14px; color: var(--ink);
+    background: #fff; border: 1px solid var(--rule); border-radius: var(--radius);
+    padding: 8px 10px;
+  }
+  select:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+  .drop {
+    margin-top: 16px; padding: 18px;
+    border: 1px dashed var(--rule); border-radius: var(--radius);
+    color: var(--muted); font-size: 14px; text-align: center;
+    cursor: pointer;
+  }
+  .drop:hover, .drop.over { border-color: var(--ink); color: var(--ink); }
+  .drop input { display: none; }
+
+  /* --- jobs --- */
+  h2 {
+    margin: 40px 0 0; font-size: 13px; font-weight: 600; color: var(--muted);
+    padding-bottom: 10px; border-bottom: 1px solid var(--rule);
+  }
+
+  .job { padding: 18px 2px; border-bottom: 1px solid var(--rule); }
+
+  .job-head {
+    display: flex; align-items: baseline; gap: 12px; margin-bottom: 11px;
+  }
+  .job-name {
+    font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .job-meta { margin-left: auto; color: var(--muted); font-size: 13px; flex: none; }
+
+  .meter { height: 4px; background: var(--rule); border-radius: 2px; overflow: hidden; }
+  .meter span {
+    display: block; height: 100%; background: var(--ink);
+    transition: width .35s ease;
+  }
+  .job.failed .meter span { background: var(--signal); }
+
+  .job-foot {
+    display: flex; align-items: center; gap: 14px;
+    margin-top: 10px; font-size: 13px; color: var(--muted);
+  }
+  .job-foot a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+  .job-foot a:hover { border-bottom-color: var(--ink); }
+  .job-foot button {
+    margin-left: auto; background: none; border: 0; padding: 0;
+    font: inherit; font-size: 13px; color: var(--muted);
+    cursor: pointer; text-decoration: underline;
+  }
+  .job-foot button:hover { color: var(--signal); }
+
+  /* Must come after .record: the UA's own [hidden] rule loses to any class
+     selector that sets display, so `<button class="record" hidden>` would
+     otherwise stay on screen. */
+  [hidden] { display: none !important; }
+
+  .status { margin: 14px 0 0; font-size: 13px; color: var(--muted); min-height: 18px; }
+  .status.bad { color: var(--signal); }
+
+  .fail { color: var(--signal); font-size: 13px; margin-top: 8px; }
+  .wrote { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+
+  /* --- transcript preview --- */
+  .preview {
+    margin-top: 14px; padding: 18px 20px;
+    background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius);
+  }
+  .preview-bar {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--rule);
+  }
+  .preview-bar button {
+    font: inherit; font-size: 12px; font-weight: 500;
+    background: none; color: var(--muted);
+    border: 1px solid var(--rule); border-radius: var(--radius);
+    padding: 4px 10px; cursor: pointer;
+  }
+  .preview-bar button[aria-pressed="true"] { color: var(--ink); border-color: var(--muted); }
+  .preview-bar button:hover { color: var(--ink); }
+  .preview-bar .count { margin-left: auto; color: var(--muted); font-size: 12px; }
+  /* Long-form reading: a measure this wide is what makes it worth reading here
+     rather than opening the file. */
+  .preview-body { max-height: 460px; overflow-y: auto; }
+  .preview-body p { margin: 0 0 1.1em; max-width: 62ch; line-height: 1.62; }
+  .preview-body p:last-child { margin-bottom: 0; }
+
+  .empty { padding: 34px 2px; color: var(--muted); font-size: 14px; }
+  #dest { padding: 14px 2px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>scribe</h1>
+    <p>Local transcription. Nothing leaves this machine.</p>
+    <button id="quit" title="Stop the server">Quit</button>
+  </header>
+
+  <section class="transport">
+    <div class="transport-row">
+      <button class="record" id="rec"><i class="lamp"></i><span id="recLabel">Start recording</span></button>
+      <button class="record" id="pause" hidden>Pause</button>
+      <select id="preset" aria-label="Model"></select>
+      <div class="elapsed tnum" id="elapsed">00:00:00</div>
+    </div>
+
+    <p class="status" id="status"></p>
+
+    <label class="drop" id="drop">
+      Drop an audio or video file, or click to choose one
+      <input type="file" id="file" accept="audio/*,video/*">
+    </label>
+  </section>
+
+  <h2>Transcripts</h2>
+  <div id="jobs"><p class="empty">Nothing yet. Record something or drop a file above.</p></div>
+  <p class="empty" id="dest"></p>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const clock = (s) => [3600, 60, 1].map((u, i) => {
+  const v = i === 0 ? Math.floor(s / u) : Math.floor(s / u) % 60;
+  return String(v).padStart(2, "0");
+}).join(":");
+
+/* ---------- presets ---------- */
+async function loadPresets() {
+  const data = await (await fetch("/api/presets")).json();
+  $("preset").innerHTML = Object.entries(data)
+    .map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
+}
+
+/* ---------- recording ----------
+   MediaRecorder hands us a blob every few seconds; each one goes straight to
+   the server and is appended to a single file. The tab never holds the whole
+   recording, so length is bounded by disk, not by memory.               */
+let recorder = null, recId = null, startedAt = 0, ticker = null, banked = 0;
+let uploads = Promise.resolve(), sent = 0;
+
+/* Recording fails in a handful of boring ways — a dismissed permission prompt,
+   a browser without mic access on this origin, macOS privacy settings — and
+   every one of them used to look identical: nothing happens. So the transport
+   reports what it's actually doing. */
+function status(msg, bad) {
+  const el = $("status");
+  el.textContent = msg || "";
+  el.classList.toggle("bad", !!bad);
+}
+
+async function startRecording() {
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    status("This browser won't expose the microphone here. Check the address is "
+         + "http://localhost — the mic is blocked on other plain-http addresses.", true);
+    return;
+  }
+
+  // A dismissed permission prompt never settles this promise, so say we're
+  // waiting. Silence here is what "nothing happened" actually looked like.
+  status("Waiting for microphone permission…");
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    status(`Microphone unavailable — ${err.name}. Allow it for this site, and check `
+         + `System Settings → Privacy & Security → Microphone for your browser.`, true);
+    return;
+  }
+
+  recId = Math.random().toString(36).slice(2, 12);
+  recorder = new MediaRecorder(stream);
+  uploads = Promise.resolve();
+  sent = 0;
+
+  // The container is the browser's choice — Chrome gives WebM, Safari MP4 —
+  // and the server names the file after it, because appending MP4 fragments
+  // the way you can append WebM clusters does not produce a decodable file.
+  const mime = recorder.mimeType || "audio/webm";
+
+  // Chained rather than fired in parallel: these all append to one file, so
+  // order matters, and `finish` has to wait for the last one to land.
+  recorder.ondataavailable = (e) => {
+    if (!e.data || !e.data.size) return;
+    uploads = uploads.then(async () => {
+      const r = await fetch(`/api/record/${recId}/chunk`,
+                            { method: "POST", body: e.data, headers: { "Content-Type": mime } });
+      if (!r.ok) throw new Error(`chunk upload failed: ${r.status}`);
+      sent += e.data.size;
+      if (recorder) status(`Recording — ${(sent / 1048576).toFixed(1)} MB saved`);
+    }).catch((err) => status(`Upload failed: ${err.message}`, true));
+  };
+
+  recorder.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    status("Finishing…");
+    // The final blob arrives just before this fires, and its upload is still in
+    // flight. Without this wait, `finish` can beat it to the server and 404 on
+    // a recording that does exist — or miss the last few seconds of one.
+    await uploads;
+    const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+    const r = await fetch(
+      `/api/record/${recId}/finish?preset=${$("preset").value}&name=${encodeURIComponent(stamp)}`,
+      { method: "POST" });
+    status(r.ok ? "" : `Could not start transcription: ${r.status} ${await r.text()}`, !r.ok);
+    refresh();
+  };
+
+  recorder.onerror = (e) => status(`Recorder error: ${(e.error && e.error.name) || e.type}`, true);
+
+  recorder.start(5000);                       // flush to the server every 5s
+  startedAt = Date.now();
+  banked = 0;
+  document.body.classList.add("live");
+  $("recLabel").textContent = "Stop recording";
+  $("pause").hidden = false;
+  $("pause").textContent = "Pause";
+  status("Recording…");
+  ticker = setInterval(() => {
+    $("elapsed").textContent = clock(elapsedMs() / 1000);
+  }, 250);
+}
+
+const elapsedMs = () =>
+  banked + (recorder && recorder.state === "recording" ? Date.now() - startedAt : 0);
+
+/* Stepping away is different from thinking. A long think should stay in the
+   recording — the planner reads those pauses as paragraph breaks — but five
+   minutes of making coffee is just disk. Pause keeps it out of the file
+   entirely; you never have to remember to use it, because silence gets skipped
+   either way. */
+function togglePause() {
+  if (!recorder) return;
+  if (recorder.state === "recording") {
+    banked += Date.now() - startedAt;
+    recorder.pause();
+    document.body.classList.remove("live");
+    $("pause").textContent = "Resume";
+  } else if (recorder.state === "paused") {
+    startedAt = Date.now();
+    recorder.resume();
+    document.body.classList.add("live");
+    $("pause").textContent = "Pause";
+  }
+}
+
+function stopRecording() {
+  clearInterval(ticker);
+  document.body.classList.remove("live");
+  $("recLabel").textContent = "Start recording";
+  $("elapsed").textContent = "00:00:00";
+  $("pause").hidden = true;
+  recorder && recorder.stop();
+  recorder = null;
+}
+
+$("rec").onclick = () => (recorder ? stopRecording() : startRecording());
+$("pause").onclick = togglePause;
+
+/* ---------- upload ---------- */
+async function upload(file) {
+  const body = new FormData();
+  body.append("file", file);
+  await fetch(`/api/upload?preset=${$("preset").value}`, { method: "POST", body });
+  refresh();
+}
+
+$("file").onchange = (e) => e.target.files[0] && upload(e.target.files[0]);
+
+const drop = $("drop");
+["dragenter", "dragover"].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) =>
+  drop.addEventListener(ev, () => drop.classList.remove("over")));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f) upload(f);
+});
+
+/* ---------- job list ---------- */
+const STAGE = {
+  queued:  (j) => "Waiting",
+  running: (j) => j.chunks_total
+      ? `${j.stage} · ${j.chunks_done} of ${j.chunks_total}`
+      : (j.stage || "Starting"),
+  done:    (j) => `${j.words.toLocaleString()} words · ${j.paragraphs} paragraphs · ${clock(j.duration)}`,
+  failed:  (j) => "Failed",
+};
+
+/* md is the cleaned read-it-back version and comes first because it's the one
+   you actually want; raw sits next to it so the cleaning can afford to be
+   aggressive. Both are already on disk by the time these appear — the links
+   are for when you want a copy somewhere else. */
+const FORMATS = [["md", "cleaned"], ["raw", "raw"], ["txt", "txt"], ["srt", "srt"], ["vtt", "vtt"]];
+
+/* Which jobs are expanded, and which version each is showing. Kept out here so
+   the once-a-second poll can redraw the list without collapsing what you're
+   reading. */
+const opened = new Map();        // jobId -> "md" | "raw"
+const textCache = new Map();     // `${jobId}:${fmt}` -> {paragraphs, words}
+
+async function loadText(id, fmt) {
+  const key = `${id}:${fmt}`;
+  if (textCache.has(key)) return textCache.get(key);
+  const data = await (await fetch(`/api/jobs/${id}/text?format=${fmt}`)).json();
+  textCache.set(key, data);
+  return data;
+}
+
+function previewHtml(j) {
+  const fmt = opened.get(j.id);
+  if (!fmt) return "";
+  const data = textCache.get(`${j.id}:${fmt}`);
+  const body = data
+    ? data.paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join("")
+    : `<p class="empty">Loading…</p>`;
+  return `
+    <div class="preview">
+      <div class="preview-bar">
+        <button data-fmt="md"  data-job="${j.id}" aria-pressed="${fmt === "md"}">Cleaned</button>
+        <button data-fmt="raw" data-job="${j.id}" aria-pressed="${fmt === "raw"}">Raw</button>
+        <button data-copy="${j.id}">Copy</button>
+        <span class="count tnum">${data ? data.words.toLocaleString() + " words" : ""}</span>
+      </div>
+      <div class="preview-body">${body}</div>
+    </div>`;
+}
+
+function render(jobs) {
+  if (!jobs.length) {
+    $("jobs").innerHTML = `<p class="empty">Nothing yet. Record something or drop a file above.</p>`;
+    return;
+  }
+
+  $("jobs").innerHTML = jobs.map((j) => `
+    <article class="job ${j.status}">
+      <div class="job-head">
+        <span class="job-name">${escapeHtml(j.name)}</span>
+        <span class="job-meta tnum">${escapeHtml((STAGE[j.status] || (() => j.status))(j))}</span>
+      </div>
+      <div class="meter"><span style="width:${(j.progress * 100).toFixed(1)}%"></span></div>
+      <div class="job-foot">
+        <span>${escapeHtml(j.model)}</span>
+        ${j.status === "done"
+          ? `<a href="#" data-read="${j.id}">${opened.has(j.id) ? "Hide" : "Read"}</a>`
+            + FORMATS.map(([f, label]) =>
+                `<a href="/api/jobs/${j.id}/export?format=${f}">${label}</a>`).join("")
+          : ""}
+        ${j.status === "failed" ? `<a href="#" data-retry="${j.id}">Resume</a>` : ""}
+        <button data-del="${j.id}">Remove</button>
+      </div>
+      ${j.written.length ? `<p class="wrote">Saved ${escapeHtml(j.written[0].replace(/^.*\//, ""))} + .raw.md</p>` : ""}
+      ${j.error ? `<p class="fail">${escapeHtml(j.error)}</p>` : ""}
+      ${previewHtml(j)}
+    </article>`).join("");
+
+  document.querySelectorAll("[data-del]").forEach((b) => {
+    b.onclick = async () => {
+      opened.delete(b.dataset.del);
+      await fetch(`/api/jobs/${b.dataset.del}`, { method: "DELETE" });
+      refresh(true);
+    };
+  });
+
+  // Picks up where the checkpoint left off rather than starting the file over.
+  document.querySelectorAll("[data-retry]").forEach((b) => {
+    b.onclick = async (e) => {
+      e.preventDefault();
+      await fetch(`/api/jobs/${b.dataset.retry}/retry`, { method: "POST" });
+      refresh(true);
+    };
+  });
+
+  document.querySelectorAll("[data-read]").forEach((b) => {
+    b.onclick = async (e) => {
+      e.preventDefault();
+      const id = b.dataset.read;
+      if (opened.has(id)) { opened.delete(id); return refresh(true); }
+      opened.set(id, "md");
+      refresh(true);                      // paint the panel, then fill it
+      await loadText(id, "md");
+      refresh(true);
+    };
+  });
+
+  document.querySelectorAll("[data-fmt]").forEach((b) => {
+    b.onclick = async () => {
+      const { job, fmt } = b.dataset;
+      opened.set(job, fmt);
+      refresh(true);
+      await loadText(job, fmt);
+      refresh(true);
+    };
+  });
+
+  document.querySelectorAll("[data-copy]").forEach((b) => {
+    b.onclick = async () => {
+      const id = b.dataset.copy;
+      const data = textCache.get(`${id}:${opened.get(id)}`);
+      if (!data) return;
+      await navigator.clipboard.writeText(data.paragraphs.join("\n\n"));
+      b.textContent = "Copied";
+      setTimeout(() => { b.textContent = "Copy"; }, 1200);
+    };
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+let lastSig = null;
+
+async function refresh(force) {
+  try {
+    const { jobs } = await (await fetch("/api/jobs")).json();
+    // Rewriting identical markup once a second would wipe any text you had
+    // selected in an open transcript, so only touch the DOM when something
+    // actually changed.
+    const sig = JSON.stringify(jobs) + "|" + JSON.stringify([...opened]);
+    if (!force && sig === lastSig) return;
+    lastSig = sig;
+    render(jobs);
+  } catch (_) { /* server restarting; the next tick will catch up */ }
+}
+
+async function loadDest() {
+  try {
+    const { folder } = await (await fetch("/api/config")).json();
+    $("dest").textContent = `Transcripts are written to ${folder} as they finish — cleaned and raw.`;
+  } catch (_) { /* not fatal; the export links still work */ }
+}
+
+/* ---------- quit ---------- */
+$("quit").onclick = async () => {
+  // Recording is the one thing that can't be recovered: the audio lives in the
+  // page until Stop hands it over, so warn before throwing it away.
+  if (recorder && !confirm(
+      "You're still recording. Stopping the server now discards this session.\n\n"
+    + "Press Stop recording first. Quit anyway?")) return;
+
+  const busy = ((await (await fetch("/api/jobs")).json()).jobs || [])
+    .filter((j) => j.status === "running" || j.status === "queued");
+  if (busy.length && !confirm(
+      `${busy.length} job still transcribing.\n\n`
+    + "It checkpoints every chunk, so it'll come back marked Resume and carry on "
+    + "from where it stopped. Quit anyway?")) return;
+
+  // The server dies mid-response, so a network error here is success.
+  await fetch("/api/quit", { method: "POST" }).catch(() => {});
+  showStopped();
+};
+
+function showStopped() {
+  clearInterval(poll);
+  clearInterval(ticker);
+  if (recorder) { try { recorder.stop(); } catch (_) {} recorder = null; }
+  document.body.classList.remove("live");
+  // No Start button can live here: this page is served by the server it just
+  // stopped, so there's nothing left to receive the click. Scribe.app is the
+  // way back in.
+  document.querySelector("main").innerHTML =
+      `<header><h1>scribe</h1></header>`
+    + `<p class="stopped">Stopped. Double-click <code>Scribe.app</code> to start it again `
+    + `— or run <code>./start.sh</code>.</p>`;
+}
+
+loadPresets();
+loadDest();
+refresh();
+const poll = setInterval(refresh, 1000);
+</script>
+</body>
+</html>

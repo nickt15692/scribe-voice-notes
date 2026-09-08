@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Swift build output
+ScribeApp/.build/
+
+# Built app bundle — produced by ScribeApp/build.sh, not source
+Scribe.app/
+
+# Local recordings and transcripts, never source
+test/
+*.wav
+*.webm
+*.m4a
+*.aiff
+
+# macOS
+.DS_Store
