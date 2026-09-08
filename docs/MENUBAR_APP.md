@@ -47,7 +47,7 @@ strict-concurrency annotations Swift 6 mode would demand of every menu callback.
 | `Server.swift` | 123 | Owns the Python engine: locates the project, spawns `start.sh`, health-polls, shuts it down. |
 | `Notifier.swift` | 108 | Banners, with an AppleScript fallback for unsigned builds. |
 | `API.swift` | 99 | `URLSession` client and the `Decodable` wire types. |
-| `Recorder.swift` | 76 | `AVAudioRecorder` → 16 kHz mono WAV on disk. |
+| `Recorder.swift` | ~190 | `AVCaptureSession` → 16 kHz mono WAV, bound to a chosen input device. |
 | `Log.swift` | 37 | Append-only log at `~/.scribe/app.log`, plus `clock()`. |
 | `main.swift` | 10 | `NSApplication` bootstrap. |
 
@@ -69,12 +69,15 @@ nothing else may touch AppKit directly.
 ## One capture, end to end
 
 1. **Start** — `Recorder.requestAccess` resolves the mic permission (the macOS
-   prompt appears on first use only), then `AVAudioRecorder` writes
-   `~/.scribe/capture/note-<timestamp>.wav`.
+   prompt appears on first use only), then an `AVCaptureSession` bound to the
+   selected device writes `~/.scribe/capture/note-<timestamp>.wav`.
 2. **Recording** — 16 kHz mono 16-bit, chosen because it is Whisper's native
    input, so the engine's ffmpeg step is nearly a no-op. That is ~32 KB/s, or
    115 MB/hour, streamed to disk. Nothing accumulates in memory.
-3. **Stop** — `API.upload` assembles the multipart body *in a temp file* and
+3. **Stop** — `Recorder.stop()` only *asks* the session to stop. The file is
+   not complete until `AVCaptureFileOutputRecordingDelegate` fires, which is
+   what calls `onFinish` → `AppDelegate.uploadCapture`. Never read the capture
+   file straight after `stop()`. Then `API.upload` assembles the multipart body *in a temp file* and
    sends it with `uploadTask(fromFile:)`, so a two-hour recording is never held
    in RAM. The capture is deleted once the server has it.
 4. **Poll** — `AppDelegate.poll` hits `/api/jobs` every 2 s until the job is
@@ -131,6 +134,12 @@ things you would never pick.
 `scribe/jobs.py` is safe, but *removing* one makes the whole decode return nil
 and the app will report the job as vanished.
 
+**Add a device-related feature.** `Recorder.inputDevices()` enumerates inputs,
+`selectedDevice()` resolves the saved `inputDeviceID` (empty = system default,
+and also the fallback when a pinned device is not connected). The submenu is
+rebuilt in `menuWillOpen` rather than at launch, because headsets appear and
+disappear while the app runs.
+
 **Change the audio format.** `Recorder.start`'s settings dictionary. Anything
 ffmpeg can read works, since the engine transcodes anyway — but 16 kHz mono is
 what Whisper wants, so raising it only costs disk.
@@ -174,10 +183,19 @@ submitting two recordings back-to-back queues them; the second waits. This is
 correct for one person talking, but it means a double-submit doubles the wait
 rather than parallelising.
 
-**Unverified.** What happens if the Mac sleeps mid-recording, and whether an
-audio device change — AirPods connecting partway through — interrupts
-`AVAudioRecorder`. Both are plausible on a long session and neither is handled
-explicitly.
+**A disconnected mic ends the recording, but not silently.** `Recorder`
+observes `AVCaptureDeviceWasDisconnected`; if the device in use vanishes it
+stops the session, alerts, and still hands the partial file over to be
+transcribed. Losing a headset mid-sentence keeps what was captured.
+
+**`build.sh` must not swallow the compiler's exit status.** An earlier version
+piped `swift build` through `grep`, which discarded the status — so a failed
+compile left the previous binary in place and the script reported success,
+shipping an app that silently hadn't changed. It now removes the binary first
+and honours the exit code.
+
+**Unverified.** What happens if the Mac sleeps mid-recording. Plausible on a
+long session and not handled explicitly.
 
 ## Debugging
 

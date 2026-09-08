@@ -58,6 +58,8 @@ start or stop:
 
 - **Start / Stop Recording** — captures at 16 kHz mono straight to disk
 - **Model** — pick a preset; **Recent** — reopen the last five transcripts
+- **Microphone** — record from any input, including Bluetooth and USB headsets,
+  without changing your system-wide default
 - **Open Transcript When Ready** — opens the cleaned `.md` the moment a job lands
 - **Open Transcripts In** — which app that uses. Scoped to Scribe, so it doesn't
   disturb the system-wide handler you use for `.md` files in code

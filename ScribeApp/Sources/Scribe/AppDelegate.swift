@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import ServiceManagement
 import UniformTypeIdentifiers
 
@@ -9,7 +10,7 @@ import UniformTypeIdentifiers
 /// with `serverDown` as the one terminal failure. Everything that touches the
 /// menu goes through `setState`/`render` on the main thread; the network and
 /// recorder callbacks arrive on arbitrary queues.
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private enum State {
         case starting, idle, recording, uploading, transcribing(String), serverDown
     }
@@ -75,15 +76,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let openItem = NSMenuItem(title: "Open Transcript When Ready",
                                       action: #selector(toggleOpenWhenReady), keyEquivalent: "")
     private let openWithItem = NSMenuItem(title: "Open Transcripts In", action: nil, keyEquivalent: "")
+    private let micItem = NSMenuItem(title: "Microphone", action: nil, keyEquivalent: "")
 
     // MARK: lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.menu = buildMenu()
+        statusItem.menu?.delegate = self
         Log.write("status item installed")
 
         Notifier.shared.setup()
+
+        // stopRecording() only *asks* the session to stop; the file isn't
+        // flushed until the capture output says so, so the upload is driven
+        // from here rather than from the menu handler.
+        recorder.onFinish = { [weak self] url in self?.uploadCapture(url) }
+        recorder.onDeviceLost = { [weak self] name in
+            self?.alert("Microphone disconnected",
+                        "\(name) went away mid-recording. What was captured up to that "
+                        + "point is being transcribed.")
+        }
+
         render()
 
         server.startIfNeeded { ok in
@@ -126,6 +140,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         recentItem.submenu = NSMenu()
         openWithItem.submenu = NSMenu()
         refreshOpenWith()
+        micItem.submenu = NSMenu()
+        refreshMics()
 
         let library = NSMenuItem(title: "Open Library", action: #selector(openLibrary), keyEquivalent: "")
         library.target = self
@@ -136,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(statusLine)
         menu.addItem(.separator())
         menu.addItem(modelItem)
+        menu.addItem(micItem)
         menu.addItem(recentItem)
         menu.addItem(library)
         menu.addItem(.separator())
@@ -175,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             toggleItem.title = "Stop Recording"
             toggleItem.isEnabled = true
             statusLine.title = "Recording · 00:00:00"
+                + (recorder.deviceName.isEmpty ? "" : "  ·  \(recorder.deviceName)")
         case .uploading:
             icon("hourglass")
             toggleItem.title = "Stop Recording"
@@ -203,6 +221,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             base.isTemplate = true            // follows the menu bar's light/dark
             statusItem.button?.image = base
         }
+    }
+
+    /// Devices come and go while the app is running, so the list is rebuilt
+    /// every time the menu is opened rather than only at launch.
+    func menuWillOpen(_ menu: NSMenu) {
+        refreshMics()
     }
 
     private func tickElapsed() {
@@ -239,7 +263,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func stopRecording() {
-        guard let file = recorder.stop() else { return }
+        guard recorder.stop() != nil else { return }
+        setState(.uploading)
+    }
+
+    /// Called once the capture file is closed and safe to read.
+    private func uploadCapture(_ file: URL) {
         setState(.uploading)
         API.upload(file: file, preset: selectedPreset) { result in
             switch result {
@@ -439,6 +468,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(path, forKey: AppDelegate.transcriptAppKey)
         Log.write("transcripts will open in: \(path.isEmpty ? "system default" : path)")
         refreshOpenWith()
+    }
+
+    /// Every input macOS can see, plus a "System Default" entry that follows
+    /// whatever Sound settings say rather than pinning a device.
+    private func refreshMics() {
+        guard let menu = micItem.submenu else { return }
+        menu.removeAllItems()
+        let saved = UserDefaults.standard.string(forKey: Recorder.deviceKey) ?? ""
+
+        let auto = NSMenuItem(title: "System Default",
+                              action: #selector(pickMic(_:)), keyEquivalent: "")
+        auto.target = self
+        auto.representedObject = ""
+        auto.state = saved.isEmpty ? .on : .off
+        menu.addItem(auto)
+        menu.addItem(.separator())
+
+        let devices = Recorder.inputDevices()
+        for d in devices {
+            let item = NSMenuItem(title: d.localizedName,
+                                  action: #selector(pickMic(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = d.uniqueID
+            item.state = (saved == d.uniqueID) ? .on : .off
+            menu.addItem(item)
+        }
+
+        // A pinned device that is currently disconnected still deserves a row,
+        // or the checkmark silently vanishes and it looks like the setting was
+        // forgotten rather than the headset being off.
+        if !saved.isEmpty, !devices.contains(where: { $0.uniqueID == saved }) {
+            let ghost = NSMenuItem(title: "(saved device not connected)",
+                                   action: nil, keyEquivalent: "")
+            ghost.isEnabled = false
+            ghost.state = .on
+            menu.addItem(ghost)
+        }
+    }
+
+    @objc private func pickMic(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        UserDefaults.standard.set(id, forKey: Recorder.deviceKey)
+        Log.write("microphone set to: \(id.isEmpty ? "system default" : sender.title)")
+        refreshMics()
+        render()
     }
 
     @objc private func toggleOpenWhenReady() {

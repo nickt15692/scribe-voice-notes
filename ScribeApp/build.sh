@@ -16,9 +16,18 @@ HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP="$HERE/../Scribe.app"
 
 cd "$HERE"
-swift build -c release 2>&1 | grep -v '^\[' | grep -v '^$' || true
 BIN=".build/release/Scribe"
-[ -x "$BIN" ] || { echo "build failed: $BIN not produced" >&2; exit 1; }
+
+# The binary is removed first and the compiler's exit status is honoured. An
+# earlier version piped through grep and swallowed the status, so a failed
+# compile left the previous binary in place and the script cheerfully reported
+# success — shipping an app that silently hadn't changed.
+rm -f "$BIN"
+if ! swift build -c release; then
+    echo "build failed" >&2
+    exit 1
+fi
+[ -x "$BIN" ] || { echo "build produced no binary at $BIN" >&2; exit 1; }
 
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Scribe"

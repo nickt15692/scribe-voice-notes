@@ -877,3 +877,54 @@ Measured on real recordings:
   recording.
 - It corrects level, not the cause. If the app is consistently recording at
   −50 dB, the macOS input level for that microphone is probably too low.
+
+---
+
+## 14. Microphone selection (Bluetooth and USB headsets)
+
+**What it does.** You can record from any input device — a Bluetooth headset, a
+USB mic — chosen inside the app, without changing your system-wide default. If
+the device disappears mid-recording, you get told and keep what was captured.
+
+**Why.** `AVAudioRecorder`, used previously, always records from the *system
+default* input and offers no way to choose. Using a headset meant changing the
+default in System Settings, which redirects every other app on the machine too.
+
+**How it's implemented**
+
+- `ScribeApp/Sources/Scribe/Recorder.swift` — rebuilt on `AVCaptureSession` +
+  `AVCaptureAudioFileOutput`, which bind to a specific `AVCaptureDevice`.
+  `audioSettings` still requests 16 kHz mono PCM, so device-native rates
+  (Bluetooth headsets often run 16 or 24 kHz) are converted on the way in.
+  `inputDevices()` enumerates, `selectedDevice()` resolves the saved
+  `inputDeviceID`, falling back to the system default when a pinned device is
+  absent.
+- `AppDelegate` — a **Microphone** submenu, rebuilt in `menuWillOpen` so
+  hot-plugged devices appear; the recording status line names the device in use.
+
+**Two consequences worth knowing.**
+
+*Stopping became asynchronous.* `AVCaptureAudioFileOutput.stopRecording()`
+returns before the file is flushed, so the upload moved to an `onFinish`
+callback driven by the recording delegate. Reading the file straight after
+`stop()` would get a truncated WAV.
+
+*Disconnection is now handled.* `AVCaptureDeviceWasDisconnected` stops the
+session, alerts, and still submits the partial recording — previously a headset
+powering off would have ended the recording with no indication.
+
+**How to use / test it.** Menu → **Microphone** → pick a device.
+
+**No automated tests** (Swift has no test target). Verified by capturing from
+both devices on this machine — a SteelSeries Arctis Nova 7 wireless headset and
+the built-in mic — and confirming each produced `pcm_s16le, 16000 Hz, 1 ch`.
+
+**Caveats**
+
+- Bluetooth mics in headset mode are typically low bandwidth; Whisper handles
+  16 kHz natively so this matters less than it would elsewhere, but audio
+  quality still caps accuracy.
+- A saved device that is disconnected shows a disabled "(saved device not
+  connected)" row rather than silently reverting, but recording will use the
+  system default until it returns.
+- Sleep mid-recording remains unhandled.
