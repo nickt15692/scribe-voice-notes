@@ -288,6 +288,13 @@ fragments is not equivalent to appending WebM clusters. The server names the
 file from the `Content-Type` the browser sends, which should handle it, but no
 one has tried. Chrome, Brave and Edge are the verified path.
 
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+The bundled Archivo webfont is a separate work under the SIL Open Font License
+1.1; see [scribe/static/fonts/README.txt](scribe/static/fonts/README.txt).
+
 ## Worth adding later
 
 - Speaker diarization (pyannote) — the one genuinely hard MacWhisper feature
