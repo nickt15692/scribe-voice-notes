@@ -45,5 +45,20 @@ fi
 codesign --force --sign - "$APP" 2>&1 | grep -v 'replacing existing signature' || true
 touch "$APP"                     # nudge LaunchServices to re-read the bundle
 
+# If a copy has been installed to /Applications, update it too. Otherwise the
+# two silently diverge: macOS launches the installed one, and a freshly built
+# fix appears to have done nothing — which is exactly what happened with the
+# microphone menu and the default-browser fix.
+INSTALLED="/Applications/$(basename "$APP")"
+if [ -d "$INSTALLED" ]; then
+    if rm -rf "$INSTALLED" 2>/dev/null && cp -R "$APP" "$INSTALLED" 2>/dev/null; then
+        codesign --force --sign - "$INSTALLED" 2>/dev/null | grep -v 'replacing existing signature' || true
+        touch "$INSTALLED"
+        echo "updated: $INSTALLED"
+    else
+        echo "warning: could not update $INSTALLED — it may be running, or need permission" >&2
+    fi
+fi
+
 echo "built: $APP"
 codesign -dv "$APP" 2>&1 | grep -E '^(Identifier|Signature)' | sed 's/^/  /'
