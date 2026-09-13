@@ -140,6 +140,36 @@ def test_clean_strips_filler(raw, want):
     assert clean.clean_text(raw, CFG) == want
 
 
+@pytest.mark.parametrize("sentence", [
+    "The build is kind of broken.",
+    "It sort of works on my machine.",
+    "Do you know the answer?",
+    "What I mean is the API changed.",
+    "You know the drill.",
+    "Kind of.",
+])
+def test_phrases_used_as_grammar_survive(sentence):
+    """Regression. Phrases were stripped wherever they appeared, although the
+    config promised only as asides — so "Do you know the answer?" came out as
+    "Do the answer?" and "kind of broken" silently lost its hedge. A phrase with
+    no comma beside it is part of the sentence."""
+    cfg = {"cleaning": {"always": [], "phrases": ["you know", "i mean", "sort of", "kind of"],
+                        "aggressive": [], "fix_stutters": True}}
+    assert clean.clean_text(sentence, cfg) == sentence
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("So, you know, I tried it.", "So I tried it."),     # between commas
+    ("I mean, that was the plan.", "That was the plan."), # opens a sentence
+    ("It was bad, you know.", "It was bad."),             # trailing tag
+    ("Is it done, sort of?", "Is it done?"),
+])
+def test_phrases_used_as_asides_are_removed(raw, want):
+    cfg = {"cleaning": {"always": [], "phrases": ["you know", "i mean", "sort of", "kind of"],
+                        "aggressive": [], "fix_stutters": True}}
+    assert clean.clean_text(raw, cfg) == want
+
+
 def test_clean_leaves_meaningful_words_alone():
     text = "I actually like the literal basically-correct version"
     assert clean.clean_text(text, CFG) == text

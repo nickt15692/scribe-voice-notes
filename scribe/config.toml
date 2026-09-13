@@ -70,12 +70,15 @@ unload_after_minutes = 10
 # Non-lexical sounds. No meaning to lose, so these always go.
 always = ["um", "uh", "erm", "uhh", "umm", "hmm", "mhm", "mm", "ah", "eh", "er"]
 
-# Discourse markers. Usually filler, occasionally load-bearing, so they're
-# stripped only when they sit between commas or open a sentence.
+# Discourse markers. Filler when used as an aside, grammar otherwise — "So, you
+# know, I tried it" versus "Do you know the answer?". Removed only when set off
+# by a comma: between two commas, opening a sentence ("I mean, ..."), or as a
+# trailing tag (", you know."). With no comma beside it, a phrase is left alone.
 phrases = ["you know", "i mean", "sort of", "kind of"]
 
-# Words that carry real meaning often enough to be worth keeping. Move any of
-# these into `phrases` if your own speech leans on them.
+# Words that carry real meaning often enough to be worth keeping. Anything added
+# here follows the same comma rule as `phrases`, so enabling "like" strips
+# "..., like, ..." but leaves "I like it" alone.
 # aggressive = ["like", "basically", "actually", "literally", "right"]
 aggressive = []
 

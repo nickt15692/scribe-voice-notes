@@ -26,8 +26,12 @@ def _alternation(words: list[str]) -> str:
     return "|".join(re.escape(w) for w in sorted(words, key=len, reverse=True))
 
 
-def _strip_tokens(text: str, words: list[str]) -> str:
-    """Delete each listed word or phrase, absorbing the punctuation it strands."""
+def _strip_everywhere(text: str, words: list[str]) -> str:
+    """Delete each word wherever it appears, absorbing the punctuation it strands.
+
+    Only safe for sounds with no meaning of their own — "um", "uh". Applying it
+    to real words is how "Do you know the answer?" became "Do the answer?".
+    """
     if not words:
         return text
     alt = _alternation(words)
@@ -38,6 +42,45 @@ def _strip_tokens(text: str, words: list[str]) -> str:
     text = re.sub(rf",\s*\b(?:{alt})\b\s*,", " ", text, flags=re.IGNORECASE)
     text = re.sub(rf"\b(?:{alt})\b\s*,?\s*", " ", text, flags=re.IGNORECASE)
     return text
+
+
+def _strip_delimited(text: str, words: list[str]) -> str:
+    """Delete a phrase only where it is set off by punctuation as an aside.
+
+    "You know", "I mean", "kind of" and "sort of" are filler when they are
+    parenthetical and grammar when they aren't:
+
+        filler   So, you know, I tried it.      grammar  Do you know the answer?
+        filler   I mean, that was the plan.     grammar  What I mean is the API changed.
+        filler   It was bad, you know.          grammar  The build is kind of broken.
+
+    The dividing line is punctuation. A phrase is removed only when it has a
+    comma on at least one side, and the other side is a comma, a sentence
+    boundary, or the end of the text. With no comma at all it is part of the
+    sentence and is left alone — which also keeps a one-word answer like
+    "Kind of." intact.
+    """
+    if not words:
+        return text
+    pattern = re.compile(
+        rf"(?P<lead>,\s*|(?:^|(?<=[.!?]))\s*)"
+        rf"(?P<word>\b(?:{_alternation(words)})\b)"
+        rf"(?P<trail>\s*,|\s*(?=[.!?])|\s*$)",
+        re.IGNORECASE,
+    )
+
+    def replace(m: re.Match) -> str:
+        lead_comma = m.group("lead").lstrip().startswith(",")
+        trail_comma = m.group("trail").lstrip().startswith(",")
+        if not (lead_comma or trail_comma):
+            return m.group(0)          # part of the sentence: keep it
+        if lead_comma and trail_comma:
+            return " "                 # ", you know," -> both commas go
+        if trail_comma:
+            return m.group("lead")     # "I mean, that" -> keep what preceded
+        return ""                      # ", you know." -> leading comma goes too
+
+    return pattern.sub(replace, text)
 
 
 def _tidy(text: str) -> str:
@@ -55,9 +98,9 @@ def _tidy(text: str) -> str:
 
 def clean_text(text: str, cfg: dict) -> str:
     rules = cfg["cleaning"]
-    text = _strip_tokens(text, rules.get("always") or [])
-    text = _strip_tokens(text, rules.get("phrases") or [])
-    text = _strip_tokens(text, rules.get("aggressive") or [])
+    text = _strip_everywhere(text, rules.get("always") or [])
+    text = _strip_delimited(text, rules.get("phrases") or [])
+    text = _strip_delimited(text, rules.get("aggressive") or [])
     if rules.get("fix_stutters", True):
         text = _STUTTER.sub(r"\1", text)
     return _tidy(text)
