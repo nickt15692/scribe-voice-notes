@@ -5,6 +5,42 @@ Common changes, the conventions to follow, and the things that will bite you.
 Read the [Gotchas](#gotchas) before changing `audio.py`, `jobs.py` or
 `index.html`. Several of them are counter-intuitive and were found the hard way.
 
+## Transcripts are private — ask first
+
+**This rule comes before everything else in this document.**
+
+If you are working on someone else's installation — as a collaborator or an AI
+assistant — get the user's **explicit permission before reading any part of
+their transcripts**. That includes a single line, the front matter, a word
+count, or a quick spot check. Permission covers the specific thing you asked
+about; ask again for anything beyond it.
+
+It covers every route to transcript content, several of which are easy to miss:
+
+| Route | Why it counts |
+|---|---|
+| Output folder `.md` / `.raw.md` | The transcripts themselves, front matter included |
+| `~/.scribe/jobs/*/job.json`, `checkpoint.json` | Both store the transcript text as segments |
+| `~/.scribe/uploads/`, `~/.scribe/capture/` | Recordings — transcribing or playing one reveals what was said |
+| `/api/jobs/{id}/text`, `/transcript`, `/export` | Return transcript text |
+| A script over transcript text | Still reads it, even if it prints only counts |
+| `test/` in this repo | Exported transcripts (gitignored) |
+
+**Test with synthetic data**: `say -o file.aiff "..."` for audio, invented
+sentences for the cleaner — the unit tests already work this way. Reading a
+job's status, or confirming a file exists without opening it, is fine. When
+unsure, ask.
+
+The `curl` examples against `/text` and `/export` elsewhere in these docs are
+for the owner of the installation, and don't override this.
+
+**Why this exists.** While verifying a fix to the cleaner, an assistant ran
+scripts over every transcript in an installation without asking — having
+earlier printed excerpts from several into its conversation, which sends them
+off the machine. The owner hadn't agreed to either. This app captures things
+people say out loud and don't intend to share; a check that seems harmless to
+the person running it isn't the reader's call to make.
+
 ## Running it while you work
 
 ```bash

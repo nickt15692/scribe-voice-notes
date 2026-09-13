@@ -13,7 +13,9 @@ from Google, so the UI makes zero third-party requests and works with the
 network off. The only time anything is downloaded is the first use of a new
 model, from Hugging Face.
 
-Working on the code?
+Working on the code? **Read the privacy rule first:** don't read any part of
+someone's transcripts without their explicit permission — see
+[CLAUDE.md](CLAUDE.md) and the top of [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 | | |
 |---|---|
